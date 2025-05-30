@@ -11,6 +11,10 @@ bcrypt>=4.0.1
 python-multipart>=0.0.6
 email-validator>=2.0.0
 
+# Database drivers and related
+cryptography>=3.4 # Added for pymysql auth methods
+PyMySQL>=1.0.0 # Explicitly add PyMySQL if not already managed by SQLAlchemy or if a specific version is needed
+
 # Machine Learning dependencies
 numpy>=1.24.0
 pandas>=2.0.0

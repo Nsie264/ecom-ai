@@ -24,6 +24,15 @@ class CategoryTree(BaseModel):
     name: str
     children: List["CategoryTree"] = []
 
+# Schema cho danh sách Category phẳng (mới thêm)
+class CategorySimpleResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
 # Schema cho thông tin ProductImage trả về
 class ProductImageResponse(BaseModel):
     image_id: int
@@ -99,3 +108,22 @@ class ProductUpdate(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class ProductListItemAdmin(BaseModel): # Schema mới
+    product_id: int
+    name: str
+    price: float
+    category_id: int
+    category_name: Optional[str] = None
+    image_url: Optional[str] = None
+    is_active: bool                 # Thêm is_active
+    stock_quantity: int             # Thêm stock_quantity
+
+    class Config:
+        orm_mode = True
+
+class ProductAdminSearchResult(BaseModel): # Schema kết quả mới
+    items: List[ProductListItemAdmin]
+    pagination: Dict[str, Any]
+    filters: Dict[str, Any]

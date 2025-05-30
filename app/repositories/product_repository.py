@@ -57,6 +57,51 @@ class ProductRepository(BaseRepository[Product]):
         # Phân trang
         return query.offset(skip).limit(limit).all()
     
+    def get_multi_mananger(
+        self, 
+        *, 
+        skip: int = 0, 
+        limit: int = 100,
+        category_id: Optional[int] = None,
+        search_query: Optional[str] = None,
+        min_price: Optional[float] = None,
+        max_price: Optional[float] = None,
+        order_by: str = "created_at",
+        descending: bool = True
+    ) -> List[Product]:
+        """Lấy danh sách sản phẩm với các bộ lọc"""
+        query = self.db.query(Product)
+        
+        # Áp dụng các bộ lọc
+        if category_id is not None:
+            query = query.filter(Product.category_id == category_id)
+        
+        if search_query:
+            search_filter = f"%{search_query}%"
+            query = query.filter(Product.name.ilike(search_filter))
+        
+        if min_price is not None:
+            query = query.filter(Product.price >= min_price)
+            
+        if max_price is not None:
+            query = query.filter(Product.price <= max_price)
+        
+        # Sắp xếp
+        if order_by == "price":
+            order_column = Product.price
+        elif order_by == "name":
+            order_column = Product.name
+        else:  # default: created_at
+            order_column = Product.created_at
+        
+        if descending:
+            query = query.order_by(desc(order_column))
+        else:
+            query = query.order_by(order_column)
+        
+        # Phân trang
+        return query.offset(skip).limit(limit).all()
+    
     def get_count(
         self,
         *,
@@ -84,33 +129,32 @@ class ProductRepository(BaseRepository[Product]):
         
         return query.scalar()
     
-    def get_by_ids(self, product_ids: List[int]) -> List[Product]:
-        """Lấy nhiều sản phẩm theo danh sách ID"""
-        if not product_ids:
-            return []
-        return self.db.query(Product).filter(
-            Product.product_id.in_(product_ids),
-            Product.is_active == True
-        ).all()
-    
-    def create_product(self, product_data: Dict[str, Any]) -> Product:
-        """Tạo sản phẩm mới"""
-        product = Product(**product_data)
-        self.db.add(product)
-        self.db.commit()
-        self.db.refresh(product)
-        return product
-    
-    def update_product(self, product_id: int, product_data: Dict[str, Any]) -> Optional[Product]:
-        """Cập nhật thông tin sản phẩm"""
-        product = self.get_by_id(product_id)
-        if product:
-            for key, value in product_data.items():
-                setattr(product, key, value)
-            self.db.add(product)
-            self.db.commit()
-            self.db.refresh(product)
-        return product
+    def get_count_mananger(
+        self,
+        *,
+        category_id: Optional[int] = None,
+        search_query: Optional[str] = None,
+        min_price: Optional[float] = None,
+        max_price: Optional[float] = None
+    ) -> int:
+        """Đếm tổng số sản phẩm thỏa mãn điều kiện lọc"""
+        query = self.db.query(func.count(Product.product_id))
+        
+        # Áp dụng các bộ lọc
+        if category_id is not None:
+            query = query.filter(Product.category_id == category_id)
+        
+        if search_query:
+            search_filter = f"%{search_query}%"
+            query = query.filter(Product.name.ilike(search_filter))
+        
+        if min_price is not None:
+            query = query.filter(Product.price >= min_price)
+            
+        if max_price is not None:
+            query = query.filter(Product.price <= max_price)
+        
+        return query.scalar()
     
     def check_and_lock_stock(self, product_id: int, quantity: int) -> bool:
         """Kiểm tra và khóa tạm thời số lượng sản phẩm để tránh race condition"""
@@ -134,6 +178,56 @@ class ProductRepository(BaseRepository[Product]):
         self.db.add(product)
         # Không commit ở đây vì sẽ commit trong transaction của đặt hàng
         return True
+    
+    def get_by_ids(self, product_ids: List[int]) -> List[Product]:
+        """Lấy nhiều sản phẩm theo danh sách ID"""
+        if not product_ids:
+            return []
+        return self.db.query(Product).filter(
+            Product.product_id.in_(product_ids),
+            Product.is_active == True
+        ).all()
+    
+    def create_product(self, product_data: Dict[str, Any]) -> Product:
+        """Tạo sản phẩm mới"""
+        # Đảm bảo category_id tồn tại nếu được cung cấp
+        if "category_id" in product_data:
+            category = self.db.query(Category).filter(Category.category_id == product_data["category_id"]).first()
+            if not category:
+                raise ValueError(f"Category with id {product_data['category_id']} not found")
+        
+        product = Product(**product_data)
+        self.db.add(product)
+        self.db.commit()
+        self.db.refresh(product)
+        return product
+    
+    def update_product(self, product_id: int, product_data: Dict[str, Any]) -> Optional[Product]:
+        """Cập nhật thông tin sản phẩm"""
+        product = self.get_by_id(product_id)
+        if product:
+            # Đảm bảo category_id tồn tại nếu được cung cấp và thay đổi
+            if "category_id" in product_data and product_data["category_id"] != product.category_id:
+                category = self.db.query(Category).filter(Category.category_id == product_data["category_id"]).first()
+                if not category:
+                    raise ValueError(f"Category with id {product_data['category_id']} not found")
+
+            for key, value in product_data.items():
+                setattr(product, key, value)
+            self.db.add(product)
+            self.db.commit()
+            self.db.refresh(product)
+        return product
+
+    def delete_product(self, product_id: int) -> Optional[Product]:
+        """Xóa mềm sản phẩm bằng cách đặt is_active = False"""
+        product = self.get_by_id(product_id)
+        if product:
+            product.is_active = False
+            self.db.add(product)
+            self.db.commit()
+            self.db.refresh(product)
+        return product
 
 class CategoryRepository(BaseRepository[Category]):
     def __init__(self, db: Session):
@@ -195,3 +289,4 @@ class TagRepository(BaseRepository[Tag]):
         if product:
             return product.tags
         return []
+    
